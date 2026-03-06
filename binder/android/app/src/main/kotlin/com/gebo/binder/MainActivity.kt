@@ -1,4 +1,4 @@
-package com.example.binder
+package com.gebo.binder
 
 import io.flutter.embedding.android.FlutterActivity
 
