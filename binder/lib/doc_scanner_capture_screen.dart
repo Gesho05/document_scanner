@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 
 class DocScannerCaptureScreen extends StatefulWidget {
@@ -18,10 +19,8 @@ class DocScannerCaptureScreen extends StatefulWidget {
 
 class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
   CameraController? _controller;
-  Future<void>? _initializeControllerFuture;
   XFile? _capturedImage;
   bool _isTakingPicture = false;
-  final TextEditingController _nameController = TextEditingController();
 
   @override
   void initState() {
@@ -42,14 +41,13 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
       enableAudio: false,
     );
 
-    _initializeControllerFuture = _controller!.initialize();
+    await _controller!.initialize();
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _controller?.dispose();
-    _nameController.dispose();
     super.dispose();
   }
 
@@ -74,45 +72,27 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
     }
   }
 
-  Future<void> _validateAndSave() async {
-    final String chosenName = _nameController.text.trim();
+  Future<void> _openCropScreen() async {
+    if (_capturedImage == null) return;
 
-    if (chosenName.isEmpty) {
-      showCupertinoDialog(
-        context: context,
-        builder: (BuildContext dialogContext) => CupertinoAlertDialog(
-          title: const Text('Name Required'),
-          content: const Text('Please provide a name for your document before saving.'),
-          actions: <CupertinoDialogAction>[
-            CupertinoDialogAction(
-              isDefaultAction: true,
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('OK'),
-            ),
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: _capturedImage!.path,
+      uiSettings: [
+        IOSUiSettings(
+          title: 'Edit Document',
+          doneButtonTitle: 'Done',
+          cancelButtonTitle: 'Cancel',
+          aspectRatioLockEnabled: false,
+          aspectRatioPresets: [
+            CropAspectRatioPreset.original,
+            CropAspectRatioPreset.ratio4x3,
           ],
         ),
-      );
-      return;
-    }
+      ],
+    );
 
-    if (_capturedImage != null) {
-      final savedFile = await _saveImagePermanently(File(_capturedImage!.path), chosenName);
-      final DateTime now = DateTime.now();
-
-      widget.onDocumentSaved({
-        'name': chosenName,
-        'file': savedFile,
-        'category': 'Personal',
-        'savedAt': now,
-      });
-
-      if (mounted) {
-        setState(() {
-          _capturedImage = null;
-          _nameController.clear();
-        });
-        Navigator.pop(context);
-      }
+    if (croppedFile != null) {
+      _showNamingDialog(File(croppedFile.path));
     }
   }
 
@@ -123,191 +103,170 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
     return tempFile.copy('$path/$safeFileName');
   }
 
+  void _showNamingDialog(File finalImage) {
+    final TextEditingController nameController = TextEditingController();
+
+    showCupertinoDialog(
+      context: context,
+      builder: (dialogContext) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: CupertinoAlertDialog(
+          title: const Text('Name Document'),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: CupertinoTextField(
+              controller: nameController,
+              placeholder: 'Enter filename',
+              style: const TextStyle(color: Colors.black),
+              autofocus: true,
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(dialogContext),
+            ),
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              child: const Text('Save'),
+              onPressed: () async {
+                final String fileName = nameController.text.trim();
+                if (fileName.isEmpty) {
+                  return;
+                }
+
+                final savedFile = await _saveImagePermanently(finalImage, fileName);
+                widget.onDocumentSaved({
+                  'name': fileName,
+                  'file': savedFile,
+                  'category': 'Scanned',
+                  'savedAt': DateTime.now(),
+                });
+
+                if (!mounted) return;
+                Navigator.pop(dialogContext);
+                setState(() => _capturedImage = null);
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_controller == null) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator()),
-      );
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator()));
     }
 
-    if (_capturedImage == null) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: FutureBuilder<void>(
-          future: _initializeControllerFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.done) {
-              return Stack(
-                children: [
-                  Center(
-                    child: AspectRatio(
-                      aspectRatio: _controller!.value.aspectRatio,
-                      child: CameraPreview(_controller!),
-                    ),
-                  ),
-                  Center(
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.85,
-                      height: MediaQuery.of(context).size.width * 0.85 * 1.41,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white.withOpacity(0.5), width: 3),
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 60,
-                    left: 20,
-                    right: 20,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        GestureDetector(
-                          onTap: () => Navigator.pop(context),
-                          child: const Icon(CupertinoIcons.back, color: Colors.white, size: 28),
-                        ),
-                        const Text(
-                          'Scan Document',
-                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(width: 28),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 60,
-                    left: 40,
-                    right: 40,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: _takePicture,
-                          child: _isTakingPicture
-                              ? const CircularProgressIndicator()
-                              : Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.black.withOpacity(0.2), width: 6),
-                                  ),
-                                  child: Center(
-                                    child: Container(
-                                      width: 65,
-                                      height: 65,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.05),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        const Spacer(),
-                        const SizedBox(width: 60),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-
-            return const Center(child: CircularProgressIndicator());
-          },
-        ),
-      );
-    }
+    final double nativeAspectRatio = 1 / _controller!.value.aspectRatio;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      body: Stack(
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: nativeAspectRatio,
+              child: CameraPreview(_controller!),
+            ),
+          ),
+          Center(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.75,
+              height: MediaQuery.of(context).size.width * 0.75 * 1.41,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
+                borderRadius: BorderRadius.circular(15),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 60,
+            left: 20,
+            right: 20,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Icon(CupertinoIcons.back, color: Colors.white, size: 28),
+                ),
+                const Text(
+                  'Camera',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 28),
+              ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              padding: const EdgeInsets.only(top: 30, bottom: 60, left: 40, right: 40),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E).withOpacity(0.8),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   GestureDetector(
-                    onTap: () => setState(() => _capturedImage = null),
-                    child: const Icon(CupertinoIcons.back, color: Colors.white, size: 28),
+                    onTap: _capturedImage != null ? _openCropScreen : null,
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.white12,
+                        image: _capturedImage != null
+                            ? DecorationImage(image: FileImage(File(_capturedImage!.path)), fit: BoxFit.cover)
+                            : null,
+                      ),
+                    ),
                   ),
-                  const Text(
-                    'Edit & Name',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  GestureDetector(
+                    onTap: _takePicture,
+                    child: _isTakingPicture
+                        ? const SizedBox(
+                            width: 75,
+                            height: 75,
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        : Container(
+                            width: 75,
+                            height: 75,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black12, width: 4),
+                            ),
+                          ),
                   ),
-                  const SizedBox(width: 28),
+                  GestureDetector(
+                    onTap: _capturedImage != null ? _openCropScreen : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _capturedImage != null ? const Color(0xFFC48B3F) : Colors.white10,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Next',
+                        style: TextStyle(
+                          color: _capturedImage != null ? Colors.white : Colors.white38,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            Expanded(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 3 / 4,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 40),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: Colors.white10),
-                      image: DecorationImage(image: FileImage(File(_capturedImage!.path)), fit: BoxFit.cover),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(25.0),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(CupertinoIcons.pencil, color: Colors.white30),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: CupertinoTextField(
-                        controller: _nameController,
-                        placeholder: 'Document Name',
-                        placeholderStyle: const TextStyle(color: Colors.white30),
-                        style: const TextStyle(color: Colors.white),
-                        decoration: null,
-                        autofocus: true,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 40.0, left: 25.0, right: 25.0),
-              child: GestureDetector(
-                onTap: _validateAndSave,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFC48B3F),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'Save Scan',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
