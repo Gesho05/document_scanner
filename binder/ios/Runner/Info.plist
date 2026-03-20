@@ -69,6 +69,8 @@
 	<key>NSCameraUsageDescription</key>
 <string>Binder needs access to your camera to scan documents.</string>
 <key>NSMicrophoneUsageDescription</key>
-<string>Binder needs access to your microphone (if you record video).</string>
+<string>Binder needs access to your microphone (optional).</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Binder needs access to save and retrieve cropped scans.</string>
 </dict>
 </plist>

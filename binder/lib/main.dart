@@ -1,18 +1,14 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart'; // import the package
-
-// A global list to store available cameras
-late List<CameraDescription> _cameras;
+import 'package:binder/doc_scanner_capture_screen.dart';
 
 Future<void> main() async {
   // Ensure the app initializes properly
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Get a list of the available cameras (like front/back)
-  _cameras = await availableCameras();
-  
+
   runApp(const MaterialApp(
     debugShowCheckedModeBanner: false,
     home: BinderMainScreen(),
@@ -28,6 +24,7 @@ class BinderMainScreen extends StatefulWidget {
 
 class _BinderMainScreenState extends State<BinderMainScreen> {
   int _selectedIndex = 0;
+  final List<Map<String, dynamic>> _savedDocuments = [];
 
   // The simplified body switcher
  Widget _getBody() {
@@ -35,23 +32,36 @@ class _BinderMainScreenState extends State<BinderMainScreen> {
     case 0:
       return const HomeContent(); // Use the new widget here
     case 1:
-      // Safety Check: If the list is empty (like in a simulator), show a message instead
-      if (_cameras.isEmpty) {
-        return const Center(
-          child: Text(
-            "No Camera Found\n(Use a real device)", 
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white, fontSize: 18),
-          ),
-        );
-      }
-      return CameraPage(camera: _cameras.first); 
+      return const HomeContent();
     case 2:
-      return const Center(child: Text("Browse Page", style: TextStyle(color: Colors.white, fontSize: 24)));
+      return BrowseContent(documents: _savedDocuments);
     default:
       return const SizedBox();
   }
 }
+
+  Future<void> _openScannerFlow() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DocScannerCaptureScreen(
+          onDocumentSaved: (savedDocument) {
+            setState(() {
+              _savedDocuments.add(savedDocument);
+              _selectedIndex = 2;
+            });
+          },
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      if (_savedDocuments.isNotEmpty) {
+        _selectedIndex = 2;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,18 +69,29 @@ class _BinderMainScreenState extends State<BinderMainScreen> {
       backgroundColor: const Color(0xFF1E1E1E),
       body: Stack(
         children: [
-          // Background content (like the camera preview)
           _getBody(),
-          
-          // Only show the navigation bar if the camera page IS NOT active
+
           if (_selectedIndex != 1) 
             Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 40),
-                child: GlassNavigation(
-                  selectedIndex: _selectedIndex,
-                  onTap: (index) => setState(() => _selectedIndex = index),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GlassNavigation(
+                      selectedIndex: _selectedIndex,
+                      onTap: (index) {
+                        if (index == 1) {
+                          _openScannerFlow();
+                          return;
+                        }
+                        setState(() => _selectedIndex = index);
+                      },
+                    ),
+                    const SizedBox(width: 15),
+                    const SearchButton(),
+                  ],
                 ),
               ),
             ),
@@ -349,6 +370,199 @@ class HomeContent extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class BrowseContent extends StatefulWidget {
+  final List<Map<String, dynamic>> documents;
+
+  const BrowseContent({super.key, required this.documents});
+
+  @override
+  State<BrowseContent> createState() => _BrowseContentState();
+}
+
+class _BrowseContentState extends State<BrowseContent> {
+  String _activeFilter = 'All';
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Map<String, dynamic>> filteredDocs = _activeFilter == 'All'
+        ? widget.documents
+        : widget.documents.where((doc) => doc['category'] == _activeFilter).toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 25.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 30),
+            const Text(
+              'Documents',
+              style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                _buildFilterButton(CupertinoIcons.list_bullet, 'All'),
+                const SizedBox(width: 10),
+                _buildFilterButton(CupertinoIcons.briefcase_fill, 'Work'),
+                const SizedBox(width: 10),
+                _buildFilterButton(CupertinoIcons.person_fill, 'Personal'),
+                const SizedBox(width: 10),
+                const Icon(CupertinoIcons.add_circled, color: Colors.white24, size: 30),
+              ],
+            ),
+            const SizedBox(height: 30),
+            Expanded(
+              child: filteredDocs.isEmpty
+                  ? const Center(
+                      child: Text('No files available', style: TextStyle(color: Colors.white24, fontSize: 18)),
+                    )
+                  : ListView.builder(
+                      itemCount: filteredDocs.length,
+                      itemBuilder: (context, index) {
+                        return _buildDocumentCard(context, filteredDocs[index]);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterButton(IconData icon, String label) {
+    bool isSelected = _activeFilter == label;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _activeFilter = label;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white24 : Colors.white10,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? Colors.white30 : Colors.transparent),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : Colors.white60, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.white60)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDocumentCard(BuildContext context, Map<String, dynamic> doc) {
+    final File realImageFile = doc['file'] as File;
+    final DateTime savedAt = (doc['savedAt'] as DateTime?) ?? DateTime.now();
+    final String timestamp =
+        '${savedAt.day.toString().padLeft(2, '0')}.${savedAt.month.toString().padLeft(2, '0')}.${savedAt.year}';
+
+    return GestureDetector(
+      onTap: () {
+        showCupertinoDialog(
+          context: context,
+          builder: (BuildContext dialogContext) => CupertinoAlertDialog(
+            title: const Text('Document Ready'),
+            content: const Text(
+              'This document is saved. To view or share it, please open it using the system Files app or a third-party application.',
+            ),
+            actions: [
+              CupertinoDialogAction(
+                isDestructiveAction: true,
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'),
+              ),
+              CupertinoDialogAction(
+                isDefaultAction: true,
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Got It'),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 15),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(10)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(realImageFile, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(width: 15),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  doc['name'] as String? ?? 'Untitled',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Text(
+                  '$timestamp • ${doc['category'] ?? 'Personal'}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
+            ),
+            const Spacer(),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('PDF', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                SizedBox(height: 10),
+                Icon(CupertinoIcons.ellipsis_vertical, color: Colors.white38, size: 18),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SearchButton extends StatelessWidget {
+  const SearchButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          height: 60,
+          width: 60,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.08),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: const Icon(
+            CupertinoIcons.search,
+            color: Colors.white,
+            size: 26,
+          ),
         ),
       ),
     );
