@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart'; // import the package
 import 'package:image_cropper/image_cropper.dart';
+import 'package:intl/intl.dart';
 import 'package:binder/doc_scanner_capture_screen.dart';
 import 'package:binder/doc_detail_screen.dart';
 import 'package:binder/loading_screen.dart';
@@ -37,15 +38,17 @@ class BinderMainScreen extends StatefulWidget {
 
 class _BinderMainScreenState extends State<BinderMainScreen> {
   int _selectedIndex = 0;
+  // ignore: unused_field
+  bool _isSearchActive = false;
   final List<Map<String, dynamic>> _savedDocuments = [];
 
   // The simplified body switcher
  Widget _getBody() {
   switch (_selectedIndex) {
     case 0:
-      return const HomeContent(); // Use the new widget here
+      return HomeContent(documents: _savedDocuments);
     case 1:
-      return const HomeContent();
+      return HomeContent(documents: _savedDocuments);
     case 2:
       return BrowseContent(documents: _savedDocuments);
     default:
@@ -99,11 +102,22 @@ class _BinderMainScreenState extends State<BinderMainScreen> {
                           _openScannerFlow();
                           return;
                         }
-                        setState(() => _selectedIndex = index);
+                        setState(() {
+                          _selectedIndex = index;
+                          _isSearchActive = false;
+                        });
                       },
                     ),
                     const SizedBox(width: 15),
-                    const SearchButton(),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedIndex = 2;
+                          _isSearchActive = true;
+                        });
+                      },
+                      child: const SearchButton(),
+                    ),
                   ],
                 ),
               ),
@@ -323,65 +337,274 @@ class GlassNavigation extends StatelessWidget {
     );
   }
 }
-// Add this new class at the bottom of your main.dart
 class HomeContent extends StatelessWidget {
-  const HomeContent({super.key});
+  const HomeContent({super.key, required this.documents});
+
+  final List<Map<String, dynamic>> documents;
+
+  DateTime? _readDocumentDate(Map<String, dynamic> doc, String key) {
+    final value = doc[key];
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  Widget _buildGlassContainer({required Widget child, double? height}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          height: height,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpireRow(Map<String, dynamic> doc, bool isLast) {
+    final expiry = doc['expiryDate'] as DateTime;
+    final int daysLeft = expiry.difference(DateTime.now()).inDays;
+    final String dateString = DateFormat('MMMM dd, yyyy').format(expiry);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0.0 : 15.0),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF007AFF).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(CupertinoIcons.car_fill, color: Color(0xFF007AFF), size: 20),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  doc['name'] as String? ?? 'Untitled',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(dateString, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+              ],
+            ),
+          ),
+          Text('$daysLeft Days', style: const TextStyle(color: Color(0xFFFF9500), fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentItem(Map<String, dynamic> doc, BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          CupertinoPageRoute(
+            builder: (context) => DocDetailScreen(
+              documentFile: doc['file'] as File,
+              documentName: doc['name'] as String? ?? 'Untitled',
+            ),
+          ),
+        );
+      },
+      child: Column(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              image: DecorationImage(image: FileImage(doc['file'] as File), fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: 50,
+            child: Text(
+              doc['name'] as String? ?? 'Untitled',
+              style: const TextStyle(color: Colors.white60, fontSize: 10),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyRecentSlot() {
+    return Column(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+        ),
+        const SizedBox(height: 6),
+        const SizedBox(width: 50, height: 12),
+      ],
+    );
+  }
+
+  Widget _buildListCard(String title, List<Map<String, dynamic>> docs, BuildContext context) {
+    return _buildGlassContainer(
+      height: 240,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(color: Colors.white60, fontSize: 14)),
+          const SizedBox(height: 15),
+          docs.isEmpty
+              ? const Expanded(
+                  child: Center(
+                    child: Text('No items found', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                  ),
+                )
+              : Column(
+                  children: docs
+                      .map(
+                        (doc) => GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              CupertinoPageRoute(
+                                builder: (context) => DocDetailScreen(
+                                  documentFile: doc['file'] as File,
+                                  documentName: doc['name'] as String? ?? 'Untitled',
+                                ),
+                              ),
+                            );
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 15.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        doc['name'] as String? ?? 'Untitled',
+                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        DateFormat('dd.MM.yyyy').format(
+                                          _readDocumentDate(doc, 'dateScanned') ??
+                                              _readDocumentDate(doc, 'savedAt') ??
+                                              DateTime.now(),
+                                        ),
+                                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(CupertinoIcons.doc, color: Colors.white24, size: 16),
+                              ],
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final sortedByRecents = List<Map<String, dynamic>>.from(documents)
+      ..sort((a, b) {
+        final aDate = _readDocumentDate(a, 'dateScanned') ?? _readDocumentDate(a, 'savedAt') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = _readDocumentDate(b, 'dateScanned') ?? _readDocumentDate(b, 'savedAt') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+
+    final recentScans = sortedByRecents.take(5).toList();
+    final workScans = sortedByRecents.where((doc) => (doc['category'] as String? ?? '') == 'Work').take(3).toList();
+    final personalScans = sortedByRecents.where((doc) => (doc['category'] as String? ?? '') == 'Personal').take(3).toList();
+
+    final expirations = documents
+        .where((doc) {
+          final expiry = _readDocumentDate(doc, 'expiryDate');
+          return expiry != null && expiry.isAfter(DateTime.now());
+        })
+        .toList()
+      ..sort((a, b) {
+        final aExpiry = _readDocumentDate(a, 'expiryDate') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bExpiry = _readDocumentDate(b, 'expiryDate') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return aExpiry.compareTo(bExpiry);
+      });
+
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 25.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 30),
-            // Welcome Header
-            const Text("Welcome back,", 
-              style: TextStyle(color: Colors.white60, fontSize: 18)),
-            const Text("Gebo", 
-              style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-            
-            const SizedBox(height: 40),
-            
-            // "Expires Soon" Section
-            const Text("Expires Soon", 
-              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 20),
-            
-            // Bento Grid Card (Matching your Figma "Warranty of car")
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2E), // Dark card grey
-                borderRadius: BorderRadius.circular(25),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF007AFF).withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(15),
+            const Text('Hello,', style: TextStyle(color: Colors.white60, fontSize: 18)),
+            const Text('Gebo', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 30),
+            const Text('Expires Soon', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            _buildGlassContainer(
+              child: expirations.isEmpty
+                  ? const Center(
+                      child: Text('No expiring documents.', style: TextStyle(color: Colors.white38, fontSize: 14)),
+                    )
+                  : Column(
+                      children: expirations.take(3).toList().asMap().entries.map((entry) {
+                        final isLast = entry.key == (expirations.take(3).length - 1);
+                        return _buildExpireRow(entry.value, isLast);
+                      }).toList(),
                     ),
-                    child: const Icon(CupertinoIcons.car_fill, color: Color(0xFF007AFF)),
-                  ),
-                  const SizedBox(width: 15),
-                  const Column(
+            ),
+            const SizedBox(height: 25),
+            _buildGlassContainer(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Recents', style: TextStyle(color: Colors.white60, fontSize: 14)),
+                  const SizedBox(height: 15),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Warranty of car", 
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                      Text("March 23, 2026", 
-                        style: TextStyle(color: Colors.white60, fontSize: 14)),
-                    ],
+                    children: List.generate(5, (index) {
+                      if (index < recentScans.length) {
+                        return _buildRecentItem(recentScans[index], context);
+                      }
+                      return _buildEmptyRecentSlot();
+                    }),
                   ),
-                  const Spacer(),
-                  const Text("3 Days", 
-                    style: TextStyle(color: Color(0xFFFF9500), fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
+            const SizedBox(height: 25),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildListCard('Personal', personalScans, context)),
+                const SizedBox(width: 15),
+                Expanded(child: _buildListCard('Work', workScans, context)),
+              ],
+            ),
+            const SizedBox(height: 120),
           ],
         ),
       ),

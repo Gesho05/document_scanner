@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
 class DocScannerCaptureScreen extends StatefulWidget {
@@ -127,6 +128,32 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
     }
   }
 
+  Future<DateTime?> _recognizeDateFromImage(File imageFile) async {
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
+    try {
+      final inputImage = InputImage.fromFile(imageFile);
+      final recognizedText = await textRecognizer.processImage(inputImage);
+      final normalizedText = recognizedText.text.toLowerCase().replaceAll('/', '.').replaceAll('-', '.');
+
+      final dateRegExp = RegExp(r'\b(\d{1,2}\.\d{1,2}\.\d{4})\b');
+      final matches = dateRegExp.allMatches(normalizedText);
+
+      if (matches.isNotEmpty) {
+        final dateStr = matches.first.group(0);
+        if (dateStr != null) {
+          return DateFormat('dd.MM.yyyy').parse(dateStr);
+        }
+      }
+
+      return null;
+    } catch (_) {
+      return null;
+    } finally {
+      await textRecognizer.close();
+    }
+  }
+
   void _showNamingDialog(File finalImage) {
     final TextEditingController nameController = TextEditingController();
 
@@ -161,11 +188,14 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
 
                 final savedFile = await _saveImagePermanently(finalImage, fileName);
                 final autoCategory = await _autoCategorizeImage(savedFile);
+                final extractedDate = await _recognizeDateFromImage(savedFile);
                 widget.onDocumentSaved({
                   'name': fileName,
                   'file': savedFile,
                   'category': autoCategory,
                   'savedAt': DateTime.now(),
+                  'dateScanned': DateTime.now(),
+                  'expiryDate': extractedDate,
                 });
 
                 if (!mounted) return;
