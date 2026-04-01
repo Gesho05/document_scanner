@@ -4,15 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart'; // import the package
 import 'package:binder/doc_scanner_capture_screen.dart';
+import 'package:binder/loading_screen.dart';
 
 Future<void> main() async {
   // Ensure the app initializes properly
   WidgetsFlutterBinding.ensureInitialized();
 
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: BinderMainScreen(),
-  ));
+  runApp(const BinderApp());
+}
+
+class BinderApp extends StatelessWidget {
+  const BinderApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Binder',
+      home: BinderLoadingScreen(nextScreen: BinderMainScreen()),
+    );
+  }
 }
 
 class BinderMainScreen extends StatefulWidget {
