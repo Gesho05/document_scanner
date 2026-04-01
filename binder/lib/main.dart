@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart'; // import the package
 import 'package:binder/doc_scanner_capture_screen.dart';
+import 'package:binder/doc_scanner_crop_screen.dart';
+import 'package:binder/doc_detail_screen.dart';
 import 'package:binder/loading_screen.dart';
 
 Future<void> main() async {
@@ -437,7 +439,9 @@ class _BrowseContentState extends State<BrowseContent> {
                   : ListView.builder(
                       itemCount: filteredDocs.length,
                       itemBuilder: (context, index) {
-                        return _buildDocumentCard(context, filteredDocs[index]);
+                        final doc = filteredDocs[index];
+                        final originalIndex = widget.documents.indexOf(doc);
+                        return _buildDocumentCard(context, doc, originalIndex);
                       },
                     ),
             ),
@@ -473,33 +477,22 @@ class _BrowseContentState extends State<BrowseContent> {
     );
   }
 
-  Widget _buildDocumentCard(BuildContext context, Map<String, dynamic> doc) {
+  Widget _buildDocumentCard(BuildContext context, Map<String, dynamic> doc, int index) {
     final File realImageFile = doc['file'] as File;
     final DateTime savedAt = (doc['savedAt'] as DateTime?) ?? DateTime.now();
-    final String timestamp =
+    final String saveDate =
         '${savedAt.day.toString().padLeft(2, '0')}.${savedAt.month.toString().padLeft(2, '0')}.${savedAt.year}';
+    final String fileExtension = realImageFile.path.split('.').last.toUpperCase();
 
     return GestureDetector(
       onTap: () {
-        showCupertinoDialog(
-          context: context,
-          builder: (BuildContext dialogContext) => CupertinoAlertDialog(
-            title: const Text('Document Ready'),
-            content: const Text(
-              'This document is saved. To view or share it, please open it using the system Files app or a third-party application.',
+        Navigator.push(
+          context,
+          CupertinoPageRoute(
+            builder: (context) => DocDetailScreen(
+              documentFile: realImageFile,
+              documentName: doc['name'] as String? ?? 'Untitled',
             ),
-            actions: [
-              CupertinoDialogAction(
-                isDestructiveAction: true,
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Close'),
-              ),
-              CupertinoDialogAction(
-                isDefaultAction: true,
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Got It'),
-              ),
-            ],
           ),
         );
       },
@@ -523,29 +516,91 @@ class _BrowseContentState extends State<BrowseContent> {
               ),
             ),
             const SizedBox(width: 15),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  doc['name'] as String? ?? 'Untitled',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                Text(
-                  '$timestamp • ${doc['category'] ?? 'Personal'}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 12),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    doc['name'] as String? ?? 'Untitled',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$saveDate • $fileExtension Title',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
             const Spacer(),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text('PDF', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                SizedBox(height: 10),
-                Icon(CupertinoIcons.ellipsis_vertical, color: Colors.white38, size: 18),
-              ],
+            GestureDetector(
+              onTap: () => _showActionMenu(context, doc, index),
+              behavior: HitTestBehavior.opaque,
+              child: const Padding(
+                padding: EdgeInsets.all(15),
+                child: Icon(
+                  CupertinoIcons.ellipsis_vertical,
+                  color: Colors.white38,
+                  size: 24,
+                ),
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showActionMenu(BuildContext context, Map<String, dynamic> doc, int index) {
+    final File documentFile = doc['file'] as File;
+    final String documentName = doc['name'] as String? ?? 'Untitled';
+
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (BuildContext popupContext) => CupertinoActionSheet(
+        title: const Text('Document Options'),
+        message: Text('What would you like to do with "$documentName"?'),
+        actions: <CupertinoActionSheetAction>[
+          CupertinoActionSheetAction(
+            child: const Text('Edit Scan'),
+            onPressed: () async {
+              Navigator.pop(popupContext);
+
+              final updatedResult = await Navigator.push(
+                context,
+                CupertinoPageRoute(
+                  builder: (context) => DocScannerCropScreen(imageFile: documentFile),
+                ),
+              );
+
+              if (!mounted) return;
+              if (updatedResult != null && updatedResult is Map<String, dynamic> && index >= 0 && index < widget.documents.length) {
+                setState(() {
+                  widget.documents[index] = {
+                    ...widget.documents[index],
+                    ...updatedResult,
+                  };
+                });
+              }
+            },
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            child: const Text('Delete'),
+            onPressed: () {
+              Navigator.pop(popupContext);
+              if (index < 0 || index >= widget.documents.length) return;
+
+              setState(() {
+                widget.documents.removeAt(index);
+              });
+            },
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(popupContext),
+          child: const Text('Cancel'),
         ),
       ),
     );
