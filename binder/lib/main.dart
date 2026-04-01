@@ -3,8 +3,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:camera/camera.dart'; // import the package
+import 'package:image_cropper/image_cropper.dart';
 import 'package:binder/doc_scanner_capture_screen.dart';
-import 'package:binder/doc_scanner_crop_screen.dart';
 import 'package:binder/doc_detail_screen.dart';
 import 'package:binder/loading_screen.dart';
 
@@ -483,6 +483,7 @@ class _BrowseContentState extends State<BrowseContent> {
     final String saveDate =
         '${savedAt.day.toString().padLeft(2, '0')}.${savedAt.month.toString().padLeft(2, '0')}.${savedAt.year}';
     final String fileExtension = realImageFile.path.split('.').last.toUpperCase();
+    final String category = doc['category'] as String? ?? 'Scanned';
 
     return GestureDetector(
       onTap: () {
@@ -527,8 +528,8 @@ class _BrowseContentState extends State<BrowseContent> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '$saveDate • $fileExtension Title',
-                    style: const TextStyle(color: Colors.white38, fontSize: 12),
+                    '$saveDate • $fileExtension\n$category',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12, height: 1.4),
                   ),
                 ],
               ),
@@ -559,30 +560,42 @@ class _BrowseContentState extends State<BrowseContent> {
     showCupertinoModalPopup<void>(
       context: context,
       builder: (BuildContext popupContext) => CupertinoActionSheet(
-        title: const Text('Document Options'),
-        message: Text('What would you like to do with "$documentName"?'),
+        title: Text(documentName),
         actions: <CupertinoActionSheetAction>[
           CupertinoActionSheetAction(
             child: const Text('Edit Scan'),
             onPressed: () async {
               Navigator.pop(popupContext);
 
-              final updatedResult = await Navigator.push(
-                context,
-                CupertinoPageRoute(
-                  builder: (context) => DocScannerCropScreen(imageFile: documentFile),
-                ),
+              final croppedFile = await ImageCropper().cropImage(
+                sourcePath: documentFile.path,
+                uiSettings: [
+                  IOSUiSettings(
+                    title: 'Edit Document',
+                    doneButtonTitle: 'Done',
+                    cancelButtonTitle: 'Cancel',
+                    aspectRatioLockEnabled: false,
+                    aspectRatioPresets: [
+                      CropAspectRatioPreset.original,
+                      CropAspectRatioPreset.ratio4x3,
+                    ],
+                  ),
+                ],
               );
 
               if (!mounted) return;
-              if (updatedResult != null && updatedResult is Map<String, dynamic> && index >= 0 && index < widget.documents.length) {
+              if (croppedFile != null && index >= 0 && index < widget.documents.length) {
                 setState(() {
-                  widget.documents[index] = {
-                    ...widget.documents[index],
-                    ...updatedResult,
-                  };
+                  widget.documents[index]['file'] = File(croppedFile.path);
                 });
               }
+            },
+          ),
+          CupertinoActionSheetAction(
+            child: const Text('Move Category'),
+            onPressed: () {
+              Navigator.pop(popupContext);
+              _showCategoryPicker(doc, index);
             },
           ),
           CupertinoActionSheetAction(
@@ -601,6 +614,44 @@ class _BrowseContentState extends State<BrowseContent> {
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.pop(popupContext),
           child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
+  void _showCategoryPicker(Map<String, dynamic> doc, int index) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (BuildContext popupContext) => CupertinoActionSheet(
+        title: const Text('Select Category'),
+        message: const Text('Move this document to a new category.'),
+        actions: <CupertinoActionSheetAction>[
+          CupertinoActionSheetAction(
+            child: const Text('Work'),
+            onPressed: () {
+              if (index >= 0 && index < widget.documents.length) {
+                setState(() {
+                  widget.documents[index]['category'] = 'Work';
+                });
+              }
+              Navigator.pop(popupContext);
+            },
+          ),
+          CupertinoActionSheetAction(
+            child: const Text('Personal'),
+            onPressed: () {
+              if (index >= 0 && index < widget.documents.length) {
+                setState(() {
+                  widget.documents[index]['category'] = 'Personal';
+                });
+              }
+              Navigator.pop(popupContext);
+            },
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(popupContext),
         ),
       ),
     );
