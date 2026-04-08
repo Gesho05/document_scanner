@@ -23,6 +23,7 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
   CameraController? _controller;
   XFile? _capturedImage;
   bool _isTakingPicture = false;
+  bool _isNaming = false;
 
   @override
   void initState() {
@@ -94,6 +95,10 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
     );
 
     if (croppedFile != null) {
+      if (!mounted) return;
+      setState(() {
+        _isNaming = true;
+      });
       _showNamingDialog(File(croppedFile.path));
     }
   }
@@ -168,14 +173,25 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
             child: CupertinoTextField(
               controller: nameController,
               placeholder: 'Enter filename',
-              style: const TextStyle(color: Colors.black),
+              placeholderStyle: const TextStyle(color: Colors.white30),
+              style: const TextStyle(color: Colors.white),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
               autofocus: true,
             ),
           ),
           actions: [
             CupertinoDialogAction(
               child: const Text('Cancel'),
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                setState(() {
+                  _isNaming = false;
+                });
+              },
             ),
             CupertinoDialogAction(
               isDefaultAction: true,
@@ -200,7 +216,10 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
 
                 if (!mounted) return;
                 Navigator.pop(dialogContext);
-                setState(() => _capturedImage = null);
+                setState(() {
+                  _capturedImage = null;
+                  _isNaming = false;
+                });
                 Navigator.pop(context);
               },
             ),
@@ -212,6 +231,13 @@ class _DocScannerCaptureScreenState extends State<DocScannerCaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isNaming) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1E1E1E),
+        body: Center(child: CupertinoActivityIndicator(radius: 15)),
+      );
+    }
+
     if (_controller == null || !_controller!.value.isInitialized) {
       return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator()));
     }

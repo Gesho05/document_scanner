@@ -21,9 +21,17 @@ class BinderApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Binder',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+        cupertinoOverrideTheme: const CupertinoThemeData(
+          brightness: Brightness.dark,
+          primaryColor: Color(0xFF007AFF),
+        ),
+      ),
       home: BinderLoadingScreen(nextScreen: BinderMainScreen()),
     );
   }
@@ -38,7 +46,6 @@ class BinderMainScreen extends StatefulWidget {
 
 class _BinderMainScreenState extends State<BinderMainScreen> {
   int _selectedIndex = 0;
-  // ignore: unused_field
   bool _isSearchActive = false;
   final List<Map<String, dynamic>> _savedDocuments = [];
 
@@ -50,7 +57,10 @@ class _BinderMainScreenState extends State<BinderMainScreen> {
     case 1:
       return HomeContent(documents: _savedDocuments);
     case 2:
-      return BrowseContent(documents: _savedDocuments);
+      return BrowseContent(
+        documents: _savedDocuments,
+        autoFocusSearch: _isSearchActive,
+      );
     default:
       return const SizedBox();
   }
@@ -92,33 +102,18 @@ class _BinderMainScreenState extends State<BinderMainScreen> {
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 40),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    GlassNavigation(
-                      selectedIndex: _selectedIndex,
-                      onTap: (index) {
-                        if (index == 1) {
-                          _openScannerFlow();
-                          return;
-                        }
-                        setState(() {
-                          _selectedIndex = index;
-                          _isSearchActive = false;
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 15),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedIndex = 2;
-                          _isSearchActive = true;
-                        });
-                      },
-                      child: const SearchButton(),
-                    ),
-                  ],
+                child: GlassNavigation(
+                  selectedIndex: _selectedIndex,
+                  onTap: (index) {
+                    if (index == 1) {
+                      _openScannerFlow();
+                      return;
+                    }
+                    setState(() {
+                      _selectedIndex = index;
+                      _isSearchActive = false;
+                    });
+                  },
                 ),
               ),
             ),
@@ -558,7 +553,7 @@ class HomeContent extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 30),
-            const Text('Hello,', style: TextStyle(color: Colors.white60, fontSize: 18)),
+            const Text('Welcome back,', style: TextStyle(color: Colors.white60, fontSize: 18)),
             const Text('Gebo', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
             const SizedBox(height: 30),
             const Text('Expires Soon', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -614,8 +609,13 @@ class HomeContent extends StatelessWidget {
 
 class BrowseContent extends StatefulWidget {
   final List<Map<String, dynamic>> documents;
+  final bool autoFocusSearch;
 
-  const BrowseContent({super.key, required this.documents});
+  const BrowseContent({
+    super.key,
+    required this.documents,
+    this.autoFocusSearch = false,
+  });
 
   @override
   State<BrowseContent> createState() => _BrowseContentState();
@@ -623,46 +623,134 @@ class BrowseContent extends StatefulWidget {
 
 class _BrowseContentState extends State<BrowseContent> {
   String _activeFilter = 'All';
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearchingActive = false;
+  List<Map<String, dynamic>> _displayDocuments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _displayDocuments = List<Map<String, dynamic>>.from(widget.documents);
+
+    _searchFocusNode.addListener(() {
+      if (!mounted) return;
+      setState(() {
+        _isSearchingActive = _searchFocusNode.hasFocus;
+      });
+    });
+
+    if (widget.autoFocusSearch) {
+      _requestSearchFocusSoon();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BrowseContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.autoFocusSearch && widget.autoFocusSearch) {
+      _requestSearchFocusSoon();
+    }
+    if (oldWidget.documents != widget.documents) {
+      _runFilter(_searchController.text);
+    }
+  }
+
+  void _requestSearchFocusSoon() {
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _runFilter(String enteredKeyword) {
+    List<Map<String, dynamic>> results;
+    final query = enteredKeyword.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      results = List<Map<String, dynamic>>.from(widget.documents);
+    } else {
+      results = widget.documents.where((doc) {
+        final name = (doc['name'] as String? ?? '').toLowerCase();
+        return name.contains(query);
+      }).toList();
+    }
+
+    if (_activeFilter != 'All') {
+      results = results.where((doc) => doc['category'] == _activeFilter).toList();
+    }
+
+    setState(() {
+      _displayDocuments = results;
+    });
+  }
+
+  void _applyCategoryFilter(String category) {
+    setState(() {
+      _activeFilter = category;
+    });
+    _runFilter(_searchController.text);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> filteredDocs = _activeFilter == 'All'
-        ? widget.documents
-        : widget.documents.where((doc) => doc['category'] == _activeFilter).toList();
-
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 25.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 30),
-            const Text(
-              'Documents',
-              style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-            ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                _buildFilterButton(CupertinoIcons.list_bullet, 'All'),
-                const SizedBox(width: 10),
-                _buildFilterButton(CupertinoIcons.briefcase_fill, 'Work'),
-                const SizedBox(width: 10),
-                _buildFilterButton(CupertinoIcons.person_fill, 'Personal'),
-                const SizedBox(width: 10),
-                const Icon(CupertinoIcons.add_circled, color: Colors.white24, size: 30),
-              ],
+            const Text(
+              'Search',
+              style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 15),
+            CupertinoSearchTextField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              placeholder: 'Search documents',
+              style: const TextStyle(color: Colors.white),
+              placeholderStyle: const TextStyle(color: Colors.white30),
+              itemColor: CupertinoColors.systemGrey,
+              backgroundColor: Colors.white.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(15),
+              padding: const EdgeInsets.all(12),
+              onChanged: _runFilter,
+              onSubmitted: _runFilter,
+            ),
+
+            if (!_isSearchingActive && _searchController.text.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 15.0, bottom: 20.0),
+                child: Row(
+                  children: [
+                    _buildFilterButton(CupertinoIcons.list_bullet, 'All'),
+                    const SizedBox(width: 10),
+                    _buildFilterButton(CupertinoIcons.briefcase_fill, 'Work'),
+                    const SizedBox(width: 10),
+                    _buildFilterButton(CupertinoIcons.person_fill, 'Personal'),
+                  ],
+                ),
+              ),
+
+            if (_isSearchingActive || _searchController.text.isNotEmpty)
+              const SizedBox(height: 20),
+
             Expanded(
-              child: filteredDocs.isEmpty
-                  ? const Center(
-                      child: Text('No files available', style: TextStyle(color: Colors.white24, fontSize: 18)),
-                    )
+              child: _displayDocuments.isEmpty
+                  ? _buildEmptyState()
                   : ListView.builder(
-                      itemCount: filteredDocs.length,
+                      itemCount: _displayDocuments.length,
                       itemBuilder: (context, index) {
-                        final doc = filteredDocs[index];
+                        final doc = _displayDocuments[index];
                         final originalIndex = widget.documents.indexOf(doc);
                         return _buildDocumentCard(context, doc, originalIndex);
                       },
@@ -677,11 +765,7 @@ class _BrowseContentState extends State<BrowseContent> {
   Widget _buildFilterButton(IconData icon, String label) {
     bool isSelected = _activeFilter == label;
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _activeFilter = label;
-        });
-      },
+      onTap: () => _applyCategoryFilter(label),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
@@ -705,7 +789,6 @@ class _BrowseContentState extends State<BrowseContent> {
     final DateTime savedAt = (doc['savedAt'] as DateTime?) ?? DateTime.now();
     final String saveDate =
         '${savedAt.day.toString().padLeft(2, '0')}.${savedAt.month.toString().padLeft(2, '0')}.${savedAt.year}';
-    final String fileExtension = realImageFile.path.split('.').last.toUpperCase();
     final String category = doc['category'] as String? ?? 'Scanned';
 
     return GestureDetector(
@@ -722,55 +805,57 @@ class _BrowseContentState extends State<BrowseContent> {
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 15),
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: const Color(0xFF2C2C2E),
+        child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(10)),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.file(realImageFile, fit: BoxFit.cover),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
               ),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    doc['name'] as String? ?? 'Untitled',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                    overflow: TextOverflow.ellipsis,
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      image: DecorationImage(image: FileImage(realImageFile), fit: BoxFit.cover),
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$saveDate • $fileExtension\n$category',
-                    style: const TextStyle(color: Colors.white38, fontSize: 12, height: 1.4),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          doc['name'] as String? ?? 'Untitled',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$saveDate • $category',
+                          style: const TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => _showActionMenu(context, doc, index),
+                    behavior: HitTestBehavior.opaque,
+                    child: const Padding(
+                      padding: EdgeInsets.all(10.0),
+                      child: Icon(CupertinoIcons.ellipsis_vertical, color: Colors.white38, size: 20),
+                    ),
                   ),
                 ],
               ),
             ),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => _showActionMenu(context, doc, index),
-              behavior: HitTestBehavior.opaque,
-              child: const Padding(
-                padding: EdgeInsets.all(15),
-                child: Icon(
-                  CupertinoIcons.ellipsis_vertical,
-                  color: Colors.white38,
-                  size: 24,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -811,6 +896,7 @@ class _BrowseContentState extends State<BrowseContent> {
                 setState(() {
                   widget.documents[index]['file'] = File(croppedFile.path);
                 });
+                _runFilter(_searchController.text);
               }
             },
           ),
@@ -831,6 +917,7 @@ class _BrowseContentState extends State<BrowseContent> {
               setState(() {
                 widget.documents.removeAt(index);
               });
+              _runFilter(_searchController.text);
             },
           ),
         ],
@@ -856,6 +943,7 @@ class _BrowseContentState extends State<BrowseContent> {
                 setState(() {
                   widget.documents[index]['category'] = 'Work';
                 });
+                _runFilter(_searchController.text);
               }
               Navigator.pop(popupContext);
             },
@@ -867,6 +955,7 @@ class _BrowseContentState extends State<BrowseContent> {
                 setState(() {
                   widget.documents[index]['category'] = 'Personal';
                 });
+                _runFilter(_searchController.text);
               }
               Navigator.pop(popupContext);
             },
@@ -876,6 +965,28 @@ class _BrowseContentState extends State<BrowseContent> {
           child: const Text('Cancel'),
           onPressed: () => Navigator.pop(popupContext),
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    final bool hasQuery = _searchController.text.trim().isNotEmpty;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            hasQuery ? CupertinoIcons.search : CupertinoIcons.folder_open,
+            color: Colors.white10,
+            size: 60,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            hasQuery ? "No matching files for\n'${_searchController.text}'" : 'No files saved yet.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white24, fontSize: 18),
+          ),
+        ],
       ),
     );
   }
